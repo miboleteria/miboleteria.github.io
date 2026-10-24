@@ -568,11 +568,38 @@ const RUTA=p=>(!BID||/^(usuarios|boleterias)(\/|$)/.test(p))?p:'boleterias/'+BID
 const BOLN=()=>(window.__bol&&window.__bol.nombre)||'Mi Boletería';
 const BOLC=()=>(window.__bol&&window.__bol.ciudad)||'';
 const funcion=k=>!!(window.__bol&&window.__bol.funciones&&window.__bol.funciones[k]);
-function aplicarMarca(){const b=window.__bol||{};document.title=BOLN()+' · Mi Boletería';
+
+/* ===== Paletas de colores por boletería (se elige en Configuración → Boletería) ===== */
+const PALETAS={
+  verde:{n:'Verde',l:{bg:'#f2f4ef',ink:'#1e2b1f',muted:'#5e6b5d',line:'#d4dbd1',chip:'#e6ebe2',accent:'#3f6b44',soft:'#e1ebdd',board:'#3f6142',bm:'#c9dcc4'},
+    d:{bg:'#111712',surface:'#1a231b',ink:'#e6ede4',muted:'#9aaa98',line:'#2c3a2d',chip:'#223024',accent:'#9ccb95',soft:'#263826',on:'#102012',board:'#1f3322',bm:'#9fb89b'}},
+  gris:{n:'Gris oscuro',l:{bg:'#f3f3f2',ink:'#1f2123',muted:'#5f6368',line:'#d6d7d9',chip:'#e7e8ea',accent:'#3a3f45',soft:'#e4e6e9',board:'#2b2f33',bm:'#c3c7cc'},
+    d:{bg:'#121314',surface:'#1c1d1f',ink:'#e8e9eb',muted:'#a0a4a9',line:'#2e3134',chip:'#26282b',accent:'#c9ced4',soft:'#2a2d31',on:'#141517',board:'#202326',bm:'#a9aeb4'}},
+  azul:{n:'Azul',l:{bg:'#f1f4f8',ink:'#1b2533',muted:'#586579',line:'#d2dae5',chip:'#e3e9f1',accent:'#2f5d8f',soft:'#dfe8f3',board:'#284f7a',bm:'#c3d4e8'},
+    d:{bg:'#10151c',surface:'#18202a',ink:'#e4ebf3',muted:'#97a6b8',line:'#2a3646',chip:'#1f2a37',accent:'#93b8e3',soft:'#22324a',on:'#0e1620',board:'#1a2a3e',bm:'#9fb5cf'}},
+  bordo:{n:'Bordó',l:{bg:'#f7f2f2',ink:'#2b1c1d',muted:'#6e5a5c',line:'#e2d3d4',chip:'#efe3e4',accent:'#7d2a33',soft:'#f1dfe1',board:'#6e232b',bm:'#e6c4c8'},
+    d:{bg:'#170f10',surface:'#221819',ink:'#f1e6e7',muted:'#b39fa1',line:'#3c2a2c',chip:'#2e2022',accent:'#e3a1a9',soft:'#3d2328',on:'#1c0f11',board:'#3b1a1e',bm:'#c9a2a7'}},
+  naranja:{n:'Naranja',l:{bg:'#f8f4ef',ink:'#2b2117',muted:'#6f6152',line:'#e5d9cb',chip:'#f0e6da',accent:'#b5541b',soft:'#f6e3d4',board:'#a34a16',bm:'#f3cfb4'},
+    d:{bg:'#16110c',surface:'#211913',ink:'#f2e9df',muted:'#b5a493',line:'#3b2e22',chip:'#2c2219',accent:'#f0a873',soft:'#3d2a1b',on:'#1d1209',board:'#3e2412',bm:'#d7b291'}}
+};
+const PAL=()=>PALETAS[(window.__bol&&window.__bol.paleta)||'verde']||PALETAS.verde;
+const rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const PDFC=()=>{const l=PAL().l,mix=(a,b,t)=>rgb(a).map((x,i)=>Math.round(x+(rgb(b)[i]-x)*t));
+  return {board:rgb(l.board),bm:rgb(l.bm),ink:rgb(l.ink),muted:rgb(l.muted),accent:rgb(l.accent),soft:rgb(l.soft),alt:mix(l.bg,'#ffffff',.5),track:rgb(l.chip)}};
+function aplicarPaleta(){const p=PAL(),l=p.l,d=p.d;
+  const v=x=>`--bg:${x.bg};--ink:${x.ink};--muted:${x.muted};--line:${x.line};--chip:${x.chip};--accent:${x.accent};--accent-soft:${x.soft};--board:${x.board};--board-muted:${x.bm};`;
+  let st=document.getElementById('paleta');if(!st){st=document.createElement('style');st.id='paleta';document.head.appendChild(st)}
+  st.textContent=`:root{${v(l)}--on-accent:#ffffff;--board-ink:#ffffff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){${v(d)}--surface:${d.surface};--on-accent:${d.on};--board-ink:#f2f2f2}}
+:root[data-theme="dark"]{${v(d)}--surface:${d.surface};--on-accent:${d.on};--board-ink:#f2f2f2}`;
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m=>m.content=l.board);
+  try{localStorage.setItem('paleta',(window.__bol&&window.__bol.paleta)||'verde')}catch(e){}}
+function aplicarMarca(){const b=window.__bol||{};aplicarPaleta();document.title=BOLN()+' · Mi Boletería';
   const n=document.getElementById('bol-nombre');if(n)n.textContent=BOLN();
   const c=document.getElementById('bol-ciudad');if(c)c.textContent=BOLC();
   const l=document.getElementById('bol-logo');if(l)l.src=b.logo||'icon-192.png';
   LOGO=b.logo||''}
+try{const k=localStorage.getItem('paleta');if(k&&PALETAS[k]){window.__bol={paleta:k};aplicarPaleta();window.__bol=null}}catch(e){}
 firebase.initializeApp(FB_CONFIG);
 const fbAuth=firebase.auth();
 const fs=firebase.firestore();
@@ -1151,16 +1178,16 @@ async function anularVenta(){
 /* ---------- PDF ---------- */
 function nuevoPDF(titulo,sub){
   const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
-  doc.setFillColor(63,97,66);doc.rect(0,0,210,24,'F');
+  const C=PDFC();doc.setFillColor(...C.board);doc.rect(0,0,210,24,'F');
   const tx=LOGO?34:14;if(LOGO){try{doc.addImage(LOGO,LOGO.startsWith('data:image/png')?'PNG':'JPEG',14,4,16,16)}catch(e){}}
   doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text(BOLN().toUpperCase(),tx,12);
-  doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(201,220,196);doc.text(BOLC(),tx,17.5);
-  doc.setTextColor(30,43,31);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text(titulo,14,34);
-  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(94,107,93);doc.text(sub,14,40);doc.setTextColor(0);
+  doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(...C.bm);doc.text(BOLC(),tx,17.5);
+  doc.setTextColor(...C.ink);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text(titulo,14,34);
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(...C.muted);doc.text(sub,14,40);doc.setTextColor(0);
   return doc;
 }
 function tablaPDF(doc,y,head,body,opts={}){
-  doc.autoTable({startY:y,head:[head],body,theme:'grid',styles:{fontSize:9,cellPadding:1.8},headStyles:{fillColor:[63,97,66],textColor:[255,255,255]},alternateRowStyles:{fillColor:[245,248,243]},footStyles:{fillColor:[225,235,221],textColor:[30,43,31],fontStyle:'bold'},margin:{left:14,right:14},...opts});
+  doc.autoTable({startY:y,head:[head],body,theme:'grid',styles:{fontSize:9,cellPadding:1.8},headStyles:{fillColor:PDFC().board,textColor:[255,255,255]},alternateRowStyles:{fillColor:PDFC().alt},footStyles:{fillColor:PDFC().soft,textColor:PDFC().ink,fontStyle:'bold'},margin:{left:14,right:14},...opts});
   return doc.lastAutoTable.finalY+8;
 }
 function subt(doc,y,t){if(y>265){doc.addPage();y=20}doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text(t,14,y);doc.setFont('helvetica','normal');return y+3}
@@ -1679,7 +1706,7 @@ function pdfStats(){
   let y=tablaPDF(doc,48,['Vendido','Boletos','Comisión','Precio promedio','Por WhatsApp'],[[fmt(S.t.total),S.t.n,fmt(S.t.com),fmt(S.prom),S.pctWsp==null?'-':S.pctWsp+'%']]);
   if(S.mejor){doc.setFontSize(10);doc.text(`Mejor día: ${dmy(S.mejor.fecha)} con ${S.mejor.n} boletos y ${fmt(S.mejor.total)}.`,14,y-2);y+=4}
   const barras=(tit,list,val,lab,max=10)=>{const top=list.slice(0,max);if(!top.length)return;if(y+10+top.length*6.5>280){doc.addPage();y=20}y=subt(doc,y,tit)+3;const mx=Math.max(...top.map(val))||1;doc.setFontSize(9);
-    for(const x of top){doc.setTextColor(30,43,31);doc.text(String(x.nombre).slice(0,28),14,y+3.2);doc.setFillColor(230,235,226);doc.roundedRect(66,y,80,4.2,1,1,'F');doc.setFillColor(63,107,68);doc.roundedRect(66,y,Math.max(.8,80*val(x)/mx),4.2,1,1,'F');doc.setTextColor(94,107,93);doc.text(lab(x),196,y+3.2,{align:'right'});y+=6.5}
+    const C=PDFC();for(const x of top){doc.setTextColor(...C.ink);doc.text(String(x.nombre).slice(0,28),14,y+3.2);doc.setFillColor(...C.track);doc.roundedRect(66,y,80,4.2,1,1,'F');doc.setFillColor(...C.accent);doc.roundedRect(66,y,Math.max(.8,80*val(x)/mx),4.2,1,1,'F');doc.setTextColor(...C.muted);doc.text(lab(x),196,y+3.2,{align:'right'});y+=6.5}
     doc.setTextColor(0);y+=5};
   barras('Por canal',S.canal,x=>x.n,x=>x.n+' bol. · '+fmt(x.total));
   barras('Día de la semana',S.semana,x=>x.n,x=>x.n+' bol.',7);
@@ -2209,6 +2236,9 @@ function fbPanelBoleteria(){
       ${b.logo?`<img src="${b.logo}" alt="" style="width:40px;height:40px;border-radius:8px">`:'<span class="hint">Sin logo propio (se usa el de Mi Boletería).</span>'}
       <label class="btn small">Cambiar logo<input type="file" id="bo-logo" accept="image/*" hidden></label>
       ${b.logo?'<button class="btn small" data-act="bo-sinlogo">Quitar logo</button>':''}</div>
+    <div style="margin-top:12px"><b>Colores de la app</b> <span class="hint">(pantalla y PDF de esta boletería)</span></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">${Object.entries(PALETAS).map(([k,p])=>{const sel=((b.paleta||'verde')===k);
+      return `<button type="button" class="btn small" data-act="bo-color" data-id="${k}" aria-pressed="${sel}" style="display:inline-flex;align-items:center;gap:8px;${sel?'outline:2px solid var(--ink);outline-offset:1px;font-weight:700':''}"><span style="width:18px;height:18px;border-radius:5px;background:${p.l.board};box-shadow:inset 0 0 0 2px ${p.l.bm}"></span>${p.n}${sel?' ✓':''}</button>`}).join('')}</div>
     <div class="row" style="gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
       ${b.activa===false?'<span class="chip warn">servicio pausado</span><button class="btn small" data-act="bo-activar">Reactivar</button>':'<span class="chip">servicio activo</span><button class="btn small" data-act="bo-pausar">Pausar servicio</button>'}
       <span class="hint">Con el servicio pausado, nadie de esta boletería puede entrar (soporte sí).</span></div>
@@ -2220,6 +2250,7 @@ async function fbGuardarBol(cambios,ok){
 document.addEventListener('click',ev=>{const b=ev.target.closest('[data-act]');if(!b||rol()!=='soporte')return;const a=b.dataset.act;
   if(a==='bo-guardar'){const n=$('#bo-nom').value.trim();if(!n){toast('Poné un nombre');return}fbGuardarBol({nombre:n,ciudad:$('#bo-ciu').value.trim()},'Nombre guardado')}
   if(a==='bo-sinlogo')fbGuardarBol({logo:''},'Logo quitado');
+  if(a==='bo-color'){const k=b.dataset.id;if(PALETAS[k])fbGuardarBol({paleta:k},'Colores: '+PALETAS[k].n)}
   if(a==='bo-pausar'&&confirm(`¿Pausar el servicio de ${BOLN()}? Nadie de esa boletería va a poder entrar hasta que lo reactives.`))fbGuardarBol({activa:false},'Servicio pausado');
   if(a==='bo-activar')fbGuardarBol({activa:true},'Servicio reactivado');
 });
