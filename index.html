@@ -464,7 +464,7 @@ tr.dudoso td{background:var(--accent-soft)}
       </div>
       <div class="panel">
         <h2>Medios de pago</h2>
-        <div class="hint">Al lado de cada medio, elegí a qué cuenta entra la plata.</div>
+        <div class="hint">Al lado de cada medio, elegí a qué cuenta entra la plata. Para tarjeta de crédito, débito, QR o link de pago, si la plata se la cobra la empresa de colectivos, elegí <b>"Lo cobra directo la empresa"</b>: en la rendición se descuenta de lo que hay que entregar y no suma a las cuentas de la boletería.</div>
         <div id="k-medio" class="list"></div>
         <form id="f-medio" class="item two" autocomplete="off">
           <input id="nm-nom" placeholder="Ej. Cuenta DNI" required aria-label="Nuevo medio de pago">
@@ -821,7 +821,7 @@ function fillSelects(){
 
 /* ---------- totales ---------- */
 function sumar(list){const t={n:0,total:0,com:0};for(const v of list){if(v.tipo!=='devolucion')t.n++;t.total+=v.importe;t.com+=v.comision}t.total=r2(t.total);t.com=r2(t.com);return t}
-function agrupar(list,key,name){const m=new Map();for(const v of list){const k=v[key];if(!m.has(k))m.set(k,{nombre:v[name],items:[]});m.get(k).items.push(v)}return [...m.values()].map(g=>({nombre:g.nombre,...sumar(g.items)})).sort((a,b)=>b.total-a.total)}
+function agrupar(list,key,name){const m=new Map();for(const v of list){const k=v[key];if(!m.has(k))m.set(k,{nombre:v[name]+(key==='medioId'&&medioDirecto(k)?' (cobra la empresa)':''),items:[]});m.get(k).items.push(v)}return [...m.values()].map(g=>({nombre:g.nombre,...sumar(g.items)})).sort((a,b)=>b.total-a.total)}
 function estado(v){
   if(v.anulada&&v.devolucionPend)return '<span class="chip warn">Anulada · a descontar</span>';
   if(v.anulada)return '<span class="chip bad">Anulada</span>';
@@ -854,7 +854,14 @@ const perTxt=(d,h)=>!d?`hasta el ${dmy(h)}`:d===h?`del día ${dmy(h)}`:`del ${dm
 const AJ={reintegro:{t:'Reintegro de gasto',signo:-1,ayuda:'No cambia la ganancia: la plata que pusieron para la empresa vuelve descontándola de la rendición. No lo carguen además como gasto del mes.'},aporte:{t:'Aporte de la empresa',signo:-1,ayuda:'Se descuenta de la rendición y suma a la ganancia del mes como "otro ingreso". Si ya cargaron el alquiler completo como gasto, queda bien así.'},suma:{t:'Suma a la rendición',signo:1,ayuda:'Se agrega a lo que hay que entregarle a la empresa. No cambia la ganancia.'}};
 let ajustes=[];
 const ajPend=eid=>ajustes.filter(a=>a.empresaId===eid&&!a.rendicionId);
-function calcRend(p,eid){const a=sumar(p.vs),d=sumar(p.ds);const total=r2(a.total-d.total),com=r2(a.com-d.com);const aj=eid?ajPend(eid):[];const tAj=r2(aj.reduce((s,x)=>s+(AJ[x.tipo]?AJ[x.tipo].signo:-1)*(+x.monto||0),0));return {n:a.n,nd:d.n,vendido:a.total,devol:d.total,total,com,aj,tAj,neto:r2(total-com+tAj)}}
+/* medios que cobra la empresa directamente (tarjeta, QR, link de pago): esa plata nunca entra a la boletería */
+const DIRECTO='__empresa';
+const medioDirecto=mid=>(byId(cfg.medios,mid)||{}).cuentaId===DIRECTO;
+const esDirecta=v=>v&&(v.directo!=null?!!v.directo:medioDirecto(v.medioId));
+function calcRend(p,eid){const a=sumar(p.vs),d=sumar(p.ds);const total=r2(a.total-d.total),com=r2(a.com-d.com);const aj=eid?ajPend(eid):[];const tAj=r2(aj.reduce((s,x)=>s+(AJ[x.tipo]?AJ[x.tipo].signo:-1)*(+x.monto||0),0));
+  const dir=r2(p.vs.filter(esDirecta).reduce((s,v)=>s+(+v.importe||0),0)-p.ds.filter(esDirecta).reduce((s,v)=>s+(+v.importe||0),0));
+  return {n:a.n,nd:d.n,vendido:a.total,devol:d.total,total,com,aj,tAj,dir,cobrado:r2(total-dir),neto:r2(total-dir-com+tAj)}}
+const netoTxt=(n,e)=>n<0?`${esc(e)} le debe a la boletería`:'A rendir';
 
 /* ---------- vistas ---------- */
 function numBol(b){const s=String(b||'').trim();if(/^seguro/i.test(s))return null;const m=s.match(/(\d+)\s*$/);return m?parseInt(m[1],10):null}
@@ -983,7 +990,7 @@ function renderRendir(){
     const fuera=pendientesDe(e.id,'9999').vs.length-p.vs.length, vf=p.vs.filter(v=>medOk('r',v));
     const k='rendir:'+e.id, hay=p.vs.length||p.ds.length||c.aj.length;
     const btn=!hay?(fuera?'<span class="chip">Nada en estas fechas</span>':'<span class="chip ok">Al día</span>'):confirmKey===k
-      ?`<div class="row"><span class="hint">¿Registrar ${fmt(c.neto)} entregados a ${esc(e.nombre)} por las ventas ${perTxt(desde,hasta)}?</span><div class="field" style="min-width:200px"><label class="label" for="r-cta">${c.neto<0?'Entra a':'Sale de'}</label><select id="r-cta">${activos(cfg.cuentas).map(x=>`<option value="${esc(x.id)}"${(LS.get('ctaRend')||'')===x.id?' selected':''}>${esc(x.nombre)}</option>`).join('')}<option value=""${LS.get('ctaRend')==='-'?' selected':''}>No anotar en cuentas</option></select></div><button class="btn small primary" data-act="rendir-si" data-id="${e.id}">Confirmar</button><button class="btn small" data-act="cancelar">Cancelar</button></div>`
+      ?`<div class="row"><span class="hint">¿Registrar ${c.neto<0?`${fmt(-c.neto)} que ${esc(e.nombre)} le paga a la boletería`:`${fmt(c.neto)} entregados a ${esc(e.nombre)}`} por las ventas ${perTxt(desde,hasta)}?</span><div class="field" style="min-width:200px"><label class="label" for="r-cta">${c.neto<0?'Entra a':'Sale de'}</label><select id="r-cta">${activos(cfg.cuentas).map(x=>`<option value="${esc(x.id)}"${(LS.get('ctaRend')||'')===x.id?' selected':''}>${esc(x.nombre)}</option>`).join('')}<option value=""${LS.get('ctaRend')==='-'?' selected':''}>No anotar en cuentas</option></select></div><button class="btn small primary" data-act="rendir-si" data-id="${e.id}">Confirmar</button><button class="btn small" data-act="cancelar">Cancelar</button></div>`
       :`<button class="btn primary" data-act="rendir" data-id="${e.id}">Registrar rendición</button>`;
     const vsOk=p.vs.filter(v=>v.tipo!=='devolucion'),nums=vsOk.map(v=>numBol(v.boleto)).filter(n=>n!==null).sort((a,b)=>a-b);
     const dias=new Map();for(const v of p.vs){const g=dias.get(v.fecha)||{n:0,t:0};if(v.tipo!=='devolucion')g.n++;g.t=r2(g.t+(+v.importe||0));dias.set(v.fecha,g)}
@@ -999,7 +1006,7 @@ function renderRendir(){
       ${hq.length?`<div class="mal" style="margin-top:4px">Faltan cargar: ${hq.slice(0,15).map(x=>x.n).join(', ')}${hq.length>15?'…':''}. Puede ser la diferencia.</div>`:''}
     </details>`:'';
     const ctrl=hay&&downloads?`<button class="btn small" data-act="pdf-ctrl" data-id="${e.id}">PDF para controlar</button>`:'';
-    return `<div class="ticket"><header><h3>${esc(e.nombre)}</h3><span class="chip acc">${e.comision}%</span></header><div class="hint">Rinde: ${esc(e.dias||'sin definir')} · Ventas ${perTxt(desde,hasta)}</div>${fuera?`<div class="hint">Quedan ${fuera} boleto${fuera===1?'':'s'} pendiente${fuera===1?'':'s'} fuera de estas fechas (se rinden después).</div>`:''}<dl class="lines"><dt>Boletos a rendir</dt><dd>${c.n}</dd><dt>Total vendido</dt><dd>${fmt(c.vendido)}</dd>${c.nd?`<dt>Anulados ya rendidos (${c.nd})</dt><dd>- ${fmt(c.devol)}</dd>`:''}<dt>Tu comisión</dt><dd>- ${fmt(c.com)}</dd>${c.aj.map(a=>`<dt>${esc(AJ[a.tipo]?AJ[a.tipo].t:'Ajuste')}: ${esc(a.motivo)}</dt><dd>${(AJ[a.tipo]&&AJ[a.tipo].signo>0)?'+':'-'} ${fmt(+a.monto)}</dd>`).join('')}<dt class="tot">A rendir</dt><dd class="tot">${fmt(c.neto)}</dd></dl>${p.vs.length?`<details${medF.r.size?' open':''}><summary class="hint" style="cursor:pointer">Ver ${medF.r.size?`los ${vf.length} de ${esc(medTxt('r'))} (de ${p.vs.length})`:`los ${p.vs.length} boleto${p.vs.length===1?'':'s'}`}</summary><div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Boleto</th><th>Destino</th><th>Medio de pago</th><th class="r">Importe</th></tr></thead><tbody>${[...vf].sort((x,y)=>x.fecha<y.fecha?-1:x.fecha>y.fecha?1:x.ts-y.ts).map(v=>`<tr><td class="mono">${dmy(v.fecha)}</td><td class="mono">${esc(v.boleto)}</td><td>${esc(v.destino||'-')}</td><td>${esc(v.medio||'—')}</td><td class="r mono">${fmt(v.importe)}</td></tr>`).join('')}</tbody></table></div><div class="label" style="margin-top:6px">Por medio de pago</div>${vf.length?porMedio(vf):'<div class="empty">Ninguno con ese medio.</div>'}</details>`:''}${quick}${ctrl}${btn}</div>`}).join('');
+    return `<div class="ticket"><header><h3>${esc(e.nombre)}</h3><span class="chip acc">${e.comision}%</span></header><div class="hint">Rinde: ${esc(e.dias||'sin definir')} · Ventas ${perTxt(desde,hasta)}</div>${fuera?`<div class="hint">Quedan ${fuera} boleto${fuera===1?'':'s'} pendiente${fuera===1?'':'s'} fuera de estas fechas (se rinden después).</div>`:''}<dl class="lines"><dt>Boletos a rendir</dt><dd>${c.n}</dd><dt>Total vendido</dt><dd>${fmt(c.vendido)}</dd>${c.nd?`<dt>Anulados ya rendidos (${c.nd})</dt><dd>- ${fmt(c.devol)}</dd>`:''}${c.dir?`<dt>Ya cobrado por la empresa <span class="hint">(tarjeta, QR, link…)</span></dt><dd>- ${fmt(c.dir)}</dd><dt>Cobrado por la boletería</dt><dd>${fmt(c.cobrado)}</dd>`:''}<dt>Tu comisión</dt><dd>- ${fmt(c.com)}</dd>${c.aj.map(a=>`<dt>${esc(AJ[a.tipo]?AJ[a.tipo].t:'Ajuste')}: ${esc(a.motivo)}</dt><dd>${(AJ[a.tipo]&&AJ[a.tipo].signo>0)?'+':'-'} ${fmt(+a.monto)}</dd>`).join('')}<dt class="tot">${netoTxt(c.neto,e.nombre)}</dt><dd class="tot">${fmt(Math.abs(c.neto))}</dd></dl>${p.vs.length?`<details${medF.r.size?' open':''}><summary class="hint" style="cursor:pointer">Ver ${medF.r.size?`los ${vf.length} de ${esc(medTxt('r'))} (de ${p.vs.length})`:`los ${p.vs.length} boleto${p.vs.length===1?'':'s'}`}</summary><div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Boleto</th><th>Destino</th><th>Medio de pago</th><th class="r">Importe</th></tr></thead><tbody>${[...vf].sort((x,y)=>x.fecha<y.fecha?-1:x.fecha>y.fecha?1:x.ts-y.ts).map(v=>`<tr><td class="mono">${dmy(v.fecha)}</td><td class="mono">${esc(v.boleto)}</td><td>${esc(v.destino||'-')}</td><td>${esc(v.medio||'—')}</td><td class="r mono">${fmt(v.importe)}</td></tr>`).join('')}</tbody></table></div><div class="label" style="margin-top:6px">Por medio de pago</div>${vf.length?porMedio(vf):'<div class="empty">Ninguno con ese medio.</div>'}</details>`:''}${quick}${ctrl}${btn}</div>`}).join('');
   for(const e of emps)pintarCtl(e.id);
   fillSelect($('#na-emp'),activos(cfg.empresas),{placeholder:'Elegí'});$('#na-ayuda').textContent=(AJ[$('#na-tipo').value]||{}).ayuda||'';
   const pj=ajustes.filter(a=>!a.rendicionId).sort((a,b)=>a.ts-b.ts);
@@ -1043,7 +1050,7 @@ function renderConfig(){
   $('#k-duenas').innerHTML=(du.length?du.map(x=>`<div class="item three"><input data-edit="duenas:${x.id}:nombre" value="${esc(x.nombre)}" aria-label="Nombre"><input class="num" type="number" min="0" max="100" step="0.01" data-edit="duenas:${x.id}:pct" value="${x.pct}" aria-label="Porcentaje">${delBtn('duenas',x.id)}</div>`).join(''):'<div class="empty">Agregá a las dueñas para calcular el reparto.</div>')+(du.length&&Math.abs(sp-100)>0.01?`<div class="mal">Suman ${sp}%: tienen que sumar 100%.</div>`:'');
   const m=activos(cfg.medios);
   const cs=activos(cfg.cuentas);
-  $('#k-medio').innerHTML=m.length?m.map(x=>`<div class="item m3"><input data-edit="medios:${x.id}:nombre" value="${esc(x.nombre)}" aria-label="Nombre"><select data-edit="medios:${x.id}:cuentaId" aria-label="Cuenta donde entra ${esc(x.nombre)}"><option value="">Entra en: sin asignar</option>${cs.map(c=>`<option value="${esc(c.id)}"${x.cuentaId===c.id?' selected':''}>Entra en: ${esc(c.nombre)}</option>`).join('')}</select>${delBtn('medios',x.id)}</div>`).join(''):'<div class="empty">Agregá al menos un medio de pago.</div>';
+  $('#k-medio').innerHTML=m.length?m.map(x=>`<div class="item m3"><input data-edit="medios:${x.id}:nombre" value="${esc(x.nombre)}" aria-label="Nombre"><select data-edit="medios:${x.id}:cuentaId" aria-label="Cuenta donde entra ${esc(x.nombre)}"><option value="">Entra en: sin asignar</option>${cs.map(c=>`<option value="${esc(c.id)}"${x.cuentaId===c.id?' selected':''}>Entra en: ${esc(c.nombre)}</option>`).join('')}<option value="${DIRECTO}"${x.cuentaId===DIRECTO?' selected':''}>Lo cobra directo la empresa</option></select>${delBtn('medios',x.id)}</div>`).join(''):'<div class="empty">Agregá al menos un medio de pago.</div>';
   fillSelect($('#nt-emp'),activos(cfg.empresas),{placeholder:'Empresa'});if(!$('#nt-emp').value){const ec=activos(cfg.empresas).find(x=>/echev/i.test(x.nombre));if(ec)$('#nt-emp').value=ec.id}
   const tl=activos(cfg.talonarios||[]).sort((a,b)=>(a.cerrado?1:0)-(b.cerrado?1:0)||a.e.localeCompare(b.e)||a.desde-b.desde);
   $('#k-tal').innerHTML=tl.length?tl.map(t=>{const e=byId(cfg.empresas,t.e),st=estadoTal(t),pct=Math.round(st.us.size/st.total*100);
@@ -1226,7 +1233,7 @@ function pintarCtl(eid){
   const out=[];
   if(cv.t!==undefined&&cv.t!==''){const k=cv.k||'vendido',nos=k==='neto'?r2(c.total-c.com):k==='com'?c.com:c.vendido,lab=k==='neto'?'El neto (vendido menos comisión)':k==='com'?'La comisión':'El total vendido',d=r2(nos-(+cv.t));
     out.push(Math.abs(d)<0.01?`<div class="okc">✓ ${lab} coincide: ${fmt(nos)}</div>`:`<div class="mal">✗ ${lab} no coincide. Diferencia de ${fmt(Math.abs(d))}: nosotros tenemos ${fmt(nos)} y la empresa ${fmt(+cv.t)} (${d>0?'tenemos de más':'nos falta'}).</div>`);
-    out.push(`<div class="hint">Nuestros números: vendido ${fmt(c.vendido)}${c.devol?` · anulados a descontar −${fmt(c.devol)}`:''} · comisión ${fmt(c.com)} · neto ${fmt(r2(c.total-c.com))}${c.tAj?` · ajustes ${c.tAj>0?'+':'−'}${fmt(Math.abs(c.tAj))} · a rendir ${fmt(c.neto)}`:''}</div>`)}
+    out.push(`<div class="hint">Nuestros números: vendido ${fmt(c.vendido)}${c.devol?` · anulados a descontar −${fmt(c.devol)}`:''} · comisión ${fmt(c.com)} · neto ${fmt(r2(c.total-c.com))}${c.dir?` · ya cobrado por la empresa ${fmt(c.dir)} · a rendir ${fmt(c.neto)}`:''}${c.tAj?` · ajustes ${c.tAj>0?'+':'−'}${fmt(Math.abs(c.tAj))} · a rendir ${fmt(c.neto)}`:''}</div>`)}
   if(cv.n!==undefined&&cv.n!==''){const d=n-(+cv.n);out.push(d===0?`<div class="okc">✓ La cantidad coincide: ${n} boletos</div>`:`<div class="mal">✗ Nosotros tenemos ${n} boletos y la empresa ${+cv.n} (${d>0?d+' de más':(-d)+' de menos'}).</div>`)}
   if(out.length&&out.some(x=>x.includes('mal'))){
     const tips=[];if(cv.t&&cv.n&&n===+cv.n)tips.push('La cantidad da bien pero el total no: revisá importes cargados con otro precio o devoluciones.');
@@ -1255,7 +1262,7 @@ function pdfControl(eid){
     y=subt(doc,y,'Por medio de pago');y=tablaPDF(doc,y,['Medio de pago','Boletos',R('Importe')],g.map(x=>[x.nombre,x.n,R(fmt(x.total))]));
     if(p.ds.length){y=subt(doc,y,'Anulados ya rendidos que se descuentan');y=tablaPDF(doc,y,['Fecha','Boleto','Destino',R('Importe')],p.ds.map(v=>[dmy(v.fecha),v.boleto,v.destino||'-',R('- '+fmt(v.importe))]))}
     y=subt(doc,y,'Totales');
-    y=tablaPDF(doc,y,['Concepto',R('Importe')],[['Total vendido',R(fmt(c.vendido))],...(c.devol?[['Anulados descontados',R('- '+fmt(c.devol))]]:[]),['Comisión de la boletería',R('- '+fmt(c.com))],...c.aj.map(a=>[((AJ[a.tipo]||{}).t||'Ajuste')+': '+a.motivo,R(((AJ[a.tipo]&&AJ[a.tipo].signo>0)?'+ ':'- ')+fmt(+a.monto))])],{foot:[['A rendir',R(fmt(c.neto))]]});
+    y=tablaPDF(doc,y,['Concepto',R('Importe')],[['Total vendido',R(fmt(c.vendido))],...(c.devol?[['Anulados descontados',R('- '+fmt(c.devol))]]:[]),...(c.dir?[['Ya cobrado por la empresa (tarjeta, QR, link)',R('- '+fmt(c.dir))]]:[]),['Comisión de la boletería',R('- '+fmt(c.com))],...c.aj.map(a=>[((AJ[a.tipo]||{}).t||'Ajuste')+': '+a.motivo,R(((AJ[a.tipo]&&AJ[a.tipo].signo>0)?'+ ':'- ')+fmt(+a.monto))])],{foot:[[c.neto<0?'La empresa le debe a la boletería':'A rendir',R(fmt(Math.abs(c.neto)))]]});
   });
   if(emps.length>1){y=subt(doc,y,'Resumen de todas las empresas');tablaPDF(doc,y,['Empresa',R('A rendir')],emps.map(e=>[e.nombre,R(fmt(calcRend(pendientesDe(e.id,hasta,desde),e.id).neto))]),{foot:[['Total',R(fmt(tot))]]})}
   guardarPDF(doc,`control-rendicion-${eid?slug(emps[0].nombre):'todas'}-${hasta}.pdf`);
@@ -1273,7 +1280,7 @@ function pdfRendicion(id){
   const ds=items.filter(i=>i.dev);
   if(ds.length){y=subt(doc,y,'Anulados ya rendidos que se descuentan');y=tablaPDF(doc,y,['Fecha','Boleto','Destino',R('Importe')],ds.map(i=>[dmy(i.fecha),i.boleto,i.destino||'-',R('- '+fmt(i.importe))]))}
   y=subt(doc,y,'Totales');
-  y=tablaPDF(doc,y,['Concepto',R('Importe')],[['Total vendido ('+r.n+' boletos)',R(fmt(r.vendido??r.total))],...(r.devol?[['Anulados descontados',R('- '+fmt(r.devol))]]:[]),['Comisión de la boletería',R('- '+fmt(r.comision))],...(r.ajustes||[]).map(a=>[((AJ[a.tipo]||{}).t||'Ajuste')+': '+a.motivo,R(((AJ[a.tipo]&&AJ[a.tipo].signo>0)?'+ ':'- ')+fmt(a.monto))])],{foot:[['Importe rendido',R(fmt(r.neto))]]});
+  y=tablaPDF(doc,y,['Concepto',R('Importe')],[['Total vendido ('+r.n+' boletos)',R(fmt(r.vendido??r.total))],...(r.devol?[['Anulados descontados',R('- '+fmt(r.devol))]]:[]),...(r.dir?[['Ya cobrado por la empresa (tarjeta, QR, link)',R('- '+fmt(r.dir))]]:[]),['Comisión de la boletería',R('- '+fmt(r.comision))],...(r.ajustes||[]).map(a=>[((AJ[a.tipo]||{}).t||'Ajuste')+': '+a.motivo,R(((AJ[a.tipo]&&AJ[a.tipo].signo>0)?'+ ':'- ')+fmt(a.monto))])],{foot:[[r.neto<0?'La empresa le pagó a la boletería':'Importe rendido',R(fmt(Math.abs(r.neto)))]]});
   firmas(doc,y,'Entregó','Recibí conforme ('+r.empresa+')');
   guardarPDF(doc,`rendicion-${slug(r.empresa)}-${ymd(new Date(r.ts))}.pdf`);
 }
@@ -1604,7 +1611,7 @@ function renderCuentas(){
   if(!cs.length){$('#q-cards').innerHTML='<div class="empty">Agregá la caja de efectivo y las cuentas en <button class="btn small" data-act="ir-config">Configuración</button>.</div>';$('#q-aviso').innerHTML='';$('#q-movs').innerHTML='';return}
   const d=qDesde();
   if(db&&d&&qKey!==d&&!qCargando){qCargando=true;const k=d;cargarRango(d,'9999-12-31').then(vs=>{qData=vs;qKey=k}).catch(()=>{toast('No se pudieron leer todas las ventas')}).finally(()=>{qCargando=false;if(tab==='cuentas')renderCuentas()})}
-  const sin=activos(cfg.medios).filter(m=>!m.cuentaId||!byId(cs,m.cuentaId));
+  const sin=activos(cfg.medios).filter(m=>m.cuentaId!==DIRECTO&&(!m.cuentaId||!byId(cs,m.cuentaId)));
   $('#q-aviso').innerHTML=(sin.length?`<div class="banner" style="margin-bottom:8px">Lo cobrado con <b>${sin.map(m=>esc(m.nombre)).join(', ')}</b> no tiene cuenta asignada y no suma en ninguna. Elegí a qué cuenta entra en <button class="btn small" data-act="ir-config">Configuración</button> › Medios de pago.</div>`:'')+(qCargando?'<div class="hint">Calculando con todas las ventas…</div>':'');
   $('#q-cards').innerHTML=cs.map(c=>{
     const r=saldoCuenta(c),ka='q-arq:'+c.id;
@@ -1903,12 +1910,12 @@ document.addEventListener('click',async ev=>{
   if(act==='rendir-si'){
     const {desde,hasta}=rangoRend(), e=byId(cfg.empresas,id), p=pendientesDe(id,hasta,desde), c=calcRend(p,id), cta=$('#r-cta')?$('#r-cta').value:'';LS.set('ctaRend',cta||'-');if(!e||!(p.vs.length||p.ds.length||c.aj.length))return render();
     b.disabled=true;
-    const it=(v,dev)=>({fecha:v.fecha,medio:v.medio||'',boleto:v.boleto,destino:(v.tipo==='devolucion'?'Devolución · ':'')+(v.destino||''),vendedora:v.vendedora,importe:v.importe,comision:v.comision,dev});
+    const it=(v,dev)=>({fecha:v.fecha,medio:v.medio||'',boleto:v.boleto,destino:(v.tipo==='devolucion'?'Devolución · ':'')+(v.destino||''),vendedora:v.vendedora,importe:v.importe,comision:v.comision,directo:esDirecta(v),dev});
     try{
-      const ref=await db.collection('rendiciones').add({empresaId:e.id,empresa:e.nombre,comisionPct:Number(e.comision),desde,hasta,cuentaId:cta||null,ts:Date.now(),quien:quien(),n:c.n,vendido:c.vendido,devol:c.devol,total:c.total,comision:c.com,neto:c.neto,tAj:c.tAj,ajustes:c.aj.map(a=>({tipo:a.tipo,monto:+a.monto,motivo:a.motivo,fecha:a.fecha})),ajusteIds:c.aj.map(a=>a.id),ventaIds:p.vs.map(v=>v.id),devIds:p.ds.map(v=>v.id),items:[...p.vs.map(v=>it(v,false)),...p.ds.map(v=>it(v,true))]});
+      const ref=await db.collection('rendiciones').add({empresaId:e.id,empresa:e.nombre,comisionPct:Number(e.comision),desde,hasta,cuentaId:cta||null,ts:Date.now(),quien:quien(),n:c.n,vendido:c.vendido,devol:c.devol,total:c.total,comision:c.com,dir:c.dir,neto:c.neto,tAj:c.tAj,ajustes:c.aj.map(a=>({tipo:a.tipo,monto:+a.monto,motivo:a.motivo,fecha:a.fecha})),ajusteIds:c.aj.map(a=>a.id),ventaIds:p.vs.map(v=>v.id),devIds:p.ds.map(v=>v.id),items:[...p.vs.map(v=>it(v,false)),...p.ds.map(v=>it(v,true))]});
       const tareas=[...p.vs.map(v=>()=>db.doc('ventas/'+v.id).update({rendida:true,rendicionId:ref.id})),...p.ds.map(v=>()=>db.doc('ventas/'+v.id).update({devolucionPend:false,devolucionRendicionId:ref.id})),...c.aj.map(a=>()=>db.doc('ajustes/'+a.id).update({rendicionId:ref.id}))];
       for(let i=0;i<tareas.length;i+=10)await Promise.all(tareas.slice(i,i+10).map(f=>f()));
-      if(cta&&c.neto)await db.collection('movimientos').add({tipo:'pago_empresa',cuentaId:cta,monto:c.neto,concepto:`Rendición a ${e.nombre} · ventas ${perTxt(desde,hasta)}`,fecha:hoy(),ts:Date.now(),quien:quien(),ref:'rendiciones/'+ref.id});
+      if(cta&&c.neto)await db.collection('movimientos').add({tipo:c.neto<0?'ingreso':'pago_empresa',cuentaId:cta,monto:Math.abs(c.neto),concepto:`Rendición a ${e.nombre} · ventas ${perTxt(desde,hasta)}`,fecha:hoy(),ts:Date.now(),quien:quien(),ref:'rendiciones/'+ref.id});
       toast(`Rendición a ${e.nombre} registrada`);cargarPend();
     }catch(err){if(err&&err.code==='invalid_argument'){marcarSoloLectura();return}toast('La rendición quedó a medias. Tocá Registrar de nuevo para completar.')}
     render();
