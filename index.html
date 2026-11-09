@@ -1245,6 +1245,19 @@ function pintarCtl(eid){
 document.addEventListener('change',e=>{const k=e.target.dataset&&e.target.dataset.ctl;if(!k||e.target.tagName!=='SELECT')return;const [eid,f]=k.split(':');ctlVals[eid]={...(ctlVals[eid]||{}),[f]:e.target.value,open:true};pintarCtl(eid)});
 document.addEventListener('input',e=>{const k=e.target.dataset&&e.target.dataset.ctl;if(!k)return;const [eid,f]=k.split(':');ctlVals[eid]={...(ctlVals[eid]||{}),[f]:e.target.value,open:true};pintarCtl(eid)});
 document.addEventListener('toggle',e=>{if(e.target.classList&&e.target.classList.contains('ctl')){const id=e.target.dataset.eid;ctlVals[id]={...(ctlVals[id]||{}),open:e.target.open}}},true);
+/* hoja simple (Echevarria): solo boleto, importe, comisión y lo que se rinde */
+const hojaSimple=e=>!!e&&/echev/i.test(e.nombre||'');
+function bloqueSimple(doc,y,vs,ds,c){
+  const fil=vs.filter(v=>v.tipo!=='devolucion').sort((a,b)=>(numBol(a.boleto)||0)-(numBol(b.boleto)||0));
+  const dev=[...vs.filter(v=>v.tipo==='devolucion'),...ds];
+  const ti=r2(fil.reduce((s,v)=>s+(+v.importe||0),0)),tc=r2(fil.reduce((s,v)=>s+(+v.comision||0),0));
+  y=tablaPDF(doc,y,['Boleto',R('Importe'),R('Comisión'),R('A rendir')],fil.map(v=>[v.boleto,R(fmt(v.importe)),R(fmt(v.comision)),R(fmt(r2(v.importe-v.comision)))]),{foot:[[`${fil.length} boletos`,R(fmt(ti)),R(fmt(tc)),R(fmt(r2(ti-tc)))]]});
+  if(dev.length){y=subt(doc,y,'Anulados y devoluciones que se descuentan');y=tablaPDF(doc,y,['Boleto',R('Importe'),R('Comisión'),R('A descontar')],dev.map(v=>{const i=Math.abs(+v.importe||0),k=Math.abs(+v.comision||0);return [v.boleto,R(fmt(i)),R(fmt(k)),R('- '+fmt(r2(i-k)))]}))}
+  const aj=c.aj||[],dI=r2(dev.reduce((s,v)=>s+Math.abs(+v.importe||0),0)),dK=r2(dev.reduce((s,v)=>s+Math.abs(+v.comision||0),0));
+  y=subt(doc,y,'Total a rendir');
+  y=tablaPDF(doc,y,['Concepto',R('Importe')],[['Importe total de la venta',R(fmt(ti))],...(dI?[['Anulados y devoluciones',R('- '+fmt(dI))]]:[]),...(c.dir?[['Ya cobrado por la empresa (tarjeta, QR, link)',R('- '+fmt(c.dir))]]:[]),['Comisión',R('- '+fmt(r2(tc-dK)))],...aj.map(a=>[((AJ[a.tipo]||{}).t||'Ajuste')+': '+a.motivo,R(((AJ[a.tipo]&&AJ[a.tipo].signo>0)?'+ ':'- ')+fmt(+a.monto))])],{foot:[[c.neto<0?'La empresa le debe a la boletería':'A rendir a la empresa',R(fmt(Math.abs(c.neto)))]]});
+  return y;
+}
 function pdfControl(eid){
   if(!window.jspdf){toast('No cargó el generador de PDF. Recargá la página.');return}
   const {desde,hasta}=rangoRend(),emps=eid?[byId(cfg.empresas,eid)].filter(Boolean):cfg.empresas.filter(e=>{const p=pendientesDe(e.id,hasta,desde);return p.vs.length||p.ds.length||ajPend(e.id).length});
@@ -1256,6 +1269,7 @@ function pdfControl(eid){
     if(k>0){doc.addPage();y=34}
     doc.setFont('helvetica','bold');doc.setFontSize(13);doc.text(`${e.nombre} (comisión ${e.comision}%)`,14,y);doc.setFont('helvetica','normal');y+=4;
     const vs=[...p.vs].filter(v=>medOk('r',v)).sort((a,b)=>a.fecha<b.fecha?-1:a.fecha>b.fecha?1:(numBol(a.boleto)||0)-(numBol(b.boleto)||0));
+    if(hojaSimple(e)){y=bloqueSimple(doc,y,vs,p.ds,c);return}
     y=tablaPDF(doc,y,['OK','Fecha','Boleto','Destino','Vendedora','Medio de pago',R('Importe')],vs.map(v=>['',dmy(v.fecha),v.boleto+(v.tipo==='devolucion'?' (devol.)':''),v.destino||'-',v.vendedora||'-',v.medio||'-',R(fmt(v.importe))]),{columnStyles:{0:{cellWidth:9}},didDrawCell:d=>{if(d.section==='body'&&d.column.index===0){doc.setDrawColor(90);doc.rect(d.cell.x+2.5,d.cell.y+1.2,4,4)}},foot:[['','','','','',`${vs.filter(v=>v.tipo!=='devolucion').length} boletos`,R(fmt(sumar(vs).total))]]});
     if(medF.r.size){y=subt(doc,y,'Filtro aplicado: solo '+medTxt('r'));}
     const g=agrupar(vs,'medioId','medio');
@@ -1273,6 +1287,10 @@ function pdfRendicion(id){
   const items=r.items||[];
   const doc=nuevoPDF('Comprobante de rendición',`${r.empresa} · ${new Date(r.ts).toLocaleDateString('es-AR')} ${hora(r.ts)}`);
   doc.setFontSize(10);doc.text(`Ventas ${perTxt(r.desde||'',r.hasta)}${r.comisionPct!=null?` · Comisión ${r.comisionPct}%`:''}`,14,47);
+  if(hojaSimple(byId(cfg.empresas,r.empresaId)||{nombre:r.empresa})){
+    const its=items.map(i=>({boleto:i.boleto,importe:i.dev?-Math.abs(i.importe):i.importe,comision:i.dev?-Math.abs(i.comision||0):(i.comision||0),tipo:(i.dev||i.importe<0)?'devolucion':''}));
+    const y2=bloqueSimple(doc,56,its,[],{vendido:r.vendido??r.total,devol:r.devol,com:r.comision,dir:r.dir||0,neto:r.neto,aj:r.ajustes||[]});
+    firmas(doc,y2,'Entregó','Recibí conforme ('+r.empresa+')');return guardarPDF(doc,`rendicion-${slug(r.empresa)}-${ymd(new Date(r.ts))}.pdf`)}
   let y=subt(doc,56,'Boletos incluidos');
   y=tablaPDF(doc,y,['Fecha','Boleto','Destino','Medio de pago',R('Importe')],items.filter(i=>!i.dev).map(i=>[dmy(i.fecha),i.boleto,i.destino||'-',i.medio||'-',R(fmt(i.importe))]));
   const pm=new Map();for(const i of items.filter(i=>!i.dev)){const k=i.medio||'Sin dato';const g=pm.get(k)||{n:0,t:0};g.n++;g.t=r2(g.t+i.importe);pm.set(k,g)}
