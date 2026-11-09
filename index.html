@@ -725,7 +725,12 @@ async function entrar(u,msg,$l){
       b.onclick=async()=>{await fbAuth.currentUser.reload();if(fbAuth.currentUser.emailVerified){await fbAuth.currentUser.getIdToken(true);b.remove();r.remove();entrar(fbAuth.currentUser,msg,$l)}else msg('Todavía no figura confirmado. Abrí el enlace del correo y probá de nuevo.',true)}}
     return}
   let perfil=null;
-  try{const s=await fs.doc('usuarios/'+email).get();perfil=s.exists?s.data():null}catch(e){perfil=null}
+  // Cuentas con contraseña: el permiso de la base usa el "pase" de la sesión, que puede seguir diciendo
+  // "correo sin confirmar" aunque ya se haya confirmado. Se pide uno nuevo antes de leer el usuario.
+  if(!esGoogle){try{await u.getIdToken(true)}catch(e){}}
+  const leerPerfil=async()=>{const s=await fs.doc('usuarios/'+email).get();return s.exists?s.data():null};
+  try{perfil=await leerPerfil()}
+  catch(e){try{await u.getIdToken(true);perfil=await leerPerfil()}catch(e2){perfil=null}}
   let rol=perfil&&perfil.activo!==false?perfil.rol:null;
   if(SOPORTE.includes(email))rol='soporte';
   if(!['soporte','duena','empleada'].includes(rol)){box.hidden=false;forms(false);
