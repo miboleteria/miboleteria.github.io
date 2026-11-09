@@ -994,7 +994,7 @@ function renderRendir(){
       :`<button class="btn primary" data-act="rendir" data-id="${e.id}">Registrar rendición</button>`;
     const vsOk=p.vs.filter(v=>v.tipo!=='devolucion'),nums=vsOk.map(v=>numBol(v.boleto)).filter(n=>n!==null).sort((a,b)=>a-b);
     const dias=new Map();for(const v of p.vs){const g=dias.get(v.fecha)||{n:0,t:0};if(v.tipo!=='devolucion')g.n++;g.t=r2(g.t+(+v.importe||0));dias.set(v.fecha,g)}
-    const hq=huecosAll().filter(x=>x.e.id===e.id&&x.vb.fecha>=(desde||'0000')&&x.va.fecha<=hasta);
+    const hq=huecosAll().filter(x=>x.e.id===e.id&&x.vb&&x.vb.fecha>=(desde||'0000')&&(x.va||x.vb).fecha<=hasta);
     const cv=ctlVals[e.id]||{};
     const quick=p.vs.length?`<details class="ctl" data-eid="${e.id}"${cv.open?' open':''}><summary class="hint" style="cursor:pointer"><b>Control rápido contra la empresa</b></summary>
       <div class="hint" style="margin:6px 0">Escribí lo que te informa la empresa para estas fechas y la app compara al instante.</div>
